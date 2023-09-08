@@ -203,6 +203,12 @@ struct ptp_message *port_management_notify(struct PortIdentity pid,
 void port_notify_event(struct port *p, enum notification event);
 
 /**
+ * Confirm security features are compatible with settings of this port.
+ * @param p        The port of interest.
+ */
+int port_security_readiness_check(struct port *p);
+
+/**
  * Open a network port.
  * @param phc_device    The name of PHC device as found on the command line.
  * @param phc_index     The PHC device index for the network device.

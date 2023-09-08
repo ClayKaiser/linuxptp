@@ -439,18 +439,55 @@ int sad_current(struct timespec lhs, struct timespec rhs)
 	}
 }
 
+void sad_revert(struct config *cfg)
+{
+	time_t latest_expiration = 0;
+	struct security_association *sa = STAILQ_FIRST(&cfg->security_association_database);
+	struct security_association *next;
+	/* search the latest sa records marked for expiration */
+	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+		if (sa->expiration != 0 && sa->expiration > latest_expiration) {
+			latest_expiration = sa->expiration;
+		}
+	}
+	/* if no records available, reverting is not possible */
+	if (latest_expiration == 0) {
+		return;
+	}
+	/* remove current records from database */
+	while (sa != NULL) {
+		next = STAILQ_NEXT(sa, list);
+		if (sa->expiration == 0) {
+			sad_destroy_association(sa);
+			STAILQ_REMOVE(&cfg->security_association_database,
+					sa, security_association, list);
+			free(sa);
+		}
+		sa = next;
+	}
+	/* remove expiration only from latest indicated to expire */
+	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+		if (sa->expiration == latest_expiration) {
+			sa->expiration = 0;
+		}
+	}
+}
+
 void sad_prune(struct config *cfg)
 {
+	struct security_association *sa = STAILQ_FIRST(&cfg->security_association_database);
+	struct security_association *next;
 	struct timespec now;
-	struct security_association *sa;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+	while (sa != NULL) {
+		next = STAILQ_NEXT(sa, list);
 		if (sa->expiration != 0 && sa->expiration <= now.tv_sec) {
 			sad_destroy_association(sa);
 			STAILQ_REMOVE(&cfg->security_association_database,
 					sa, security_association, list);
 			free(sa);
 		}
+		sa = next;
 	}
 }
 
@@ -849,6 +886,7 @@ int sad_create(struct config *cfg)
 int sad_readiness_check(int spp, size_t active_key_id, struct config *cfg)
 {
         struct security_association *sa;
+        size_t sa_cnt = 0;
         if (spp < 0 && active_key_id < 1) {
                 return 0;
         }
@@ -864,7 +902,12 @@ int sad_readiness_check(int spp, size_t active_key_id, struct config *cfg)
                         pr_err("sa_file required when spp set");
                         return -1;
                 }
-                if (STAILQ_EMPTY(&cfg->security_association_database)) {
+                STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+                        if (sa->expiration == 0) {
+                                sa_cnt++;
+                        }
+                }
+                if (sa_cnt == 0) {
                         pr_err("spp set but sad is empty");
                         return -1;
                 }

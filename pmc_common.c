@@ -78,6 +78,7 @@
 
 static void do_get_action(struct pmc *pmc, int action, int index, char *str);
 static void do_set_action(struct pmc *pmc, int action, int index, char *str);
+static void do_cmd_action(struct pmc *pmc, int action, int index, char *str);
 static void not_supported(struct pmc *pmc, int action, int index, char *str);
 static void null_management(struct pmc *pmc, int action, int index, char *str);
 
@@ -132,6 +133,7 @@ struct management_id idtab[] = {
 	{ "GRANDMASTER_SETTINGS_NP", MID_GRANDMASTER_SETTINGS_NP, do_set_action },
 	{ "SUBSCRIBE_EVENTS_NP", MID_SUBSCRIBE_EVENTS_NP, do_set_action },
 	{ "SYNCHRONIZATION_UNCERTAIN_NP", MID_SYNCHRONIZATION_UNCERTAIN_NP, do_set_action },
+	{ "SA_REKEY_NP", MID_SA_REKEY_NP, do_cmd_action },
 /* Port management ID values */
 	{ "NULL_MANAGEMENT", MID_NULL_MANAGEMENT, null_management },
 	{ "CLOCK_DESCRIPTION", MID_CLOCK_DESCRIPTION, do_get_action },
@@ -399,6 +401,30 @@ static void do_set_action(struct pmc *pmc, int action, int index, char *str)
 				IEEE_C37_238_VERSION_2011,
 				IEEE_C37_238_VERSION_2017);
 		}
+		break;
+	}
+}
+
+static void do_cmd_action(struct pmc *pmc, int action, int index, char *str)
+{
+	int code = idtab[index].code;
+
+	switch (action) {
+	case COMMAND:
+		break;
+	case GET:
+	case SET:
+	case RESPONSE:
+	case ACKNOWLEDGE:
+	default:
+		fprintf(stderr, "%s only allows COMMAND\n",
+			idtab[index].name);
+		return;
+	}
+
+	switch (code) {
+	case MID_SA_REKEY_NP:
+		pmc_send_cmd_action(pmc, code);
 		break;
 	}
 }
@@ -826,6 +852,31 @@ int pmc_send_set_aton(struct pmc *pmc, int id, uint8_t key, const char *name)
 	aton->keyField = key;
 	ptp_text_set(&aton->displayName, name);
 
+	pmc_send(pmc, msg);
+	msg_put(msg);
+
+	return 0;
+}
+
+int pmc_send_cmd_action(struct pmc *pmc, int id)
+{
+	struct management_tlv *mgt;
+	struct ptp_message *msg;
+	struct tlv_extra *extra;
+
+	msg = pmc_message(pmc, COMMAND);
+	if (!msg) {
+		return -1;
+	}
+	extra = msg_tlv_append(msg, sizeof(*mgt));
+	if (!extra) {
+		msg_put(msg);
+		return -ENOMEM;
+	}
+	mgt = (struct management_tlv *) extra->tlv;
+	mgt->type = TLV_MANAGEMENT;
+	mgt->length = 2;
+	mgt->id = id;
 	pmc_send(pmc, msg);
 	msg_put(msg);
 

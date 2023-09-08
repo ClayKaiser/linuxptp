@@ -82,6 +82,14 @@ int sad_process_auth(struct config *cfg, int spp,
 int sad_create(struct config *cfg);
 
 /**
+ * Revert security association database to state before latest rekey.
+ * This involves removing associations that do not have expiration indicated
+ * and removing expiration indicator from the latest expiring associations.
+ * @param cfg  config where security association database is stored
+ */
+void sad_revert(struct config *cfg);
+
+/**
  * Prune invalid security association database marked for deletion
  * @param cfg  config where security association database is stored
  */

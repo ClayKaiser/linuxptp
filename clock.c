@@ -580,6 +580,9 @@ static int clock_management_fill_response(struct clock *c, struct port *p,
 		mtd->val = c->local_sync_uncertain;
 		datalen = sizeof(*mtd);
 		break;
+	case MID_SA_REKEY_NP:
+		datalen = 0;
+		break;
 	default:
 		/* The caller should *not* respond to this message. */
 		tlv_extra_recycle(extra);
@@ -707,6 +710,39 @@ static int clock_management_set(struct clock *c, struct port *p,
 			respond = 1;
 			break;
 		}
+		break;
+	}
+	if (respond && !clock_management_get_response(c, p, id, req))
+		pr_err("failed to send management set response");
+	return respond ? 1 : 0;
+}
+
+static int clock_management_cmd(struct clock *c, struct port *p,
+				int id, struct ptp_message *req, int *changed)
+{
+	struct port *port;
+	int respond = 0;
+	bool success = true;
+
+	switch (id) {
+	case MID_SA_REKEY_NP:
+		/* populate sad using new associations from file */
+		if (sad_create(clock_config(c))) {
+			sad_revert(clock_config(c));
+			pr_err("rekey failed: sad_create failure");
+			success = false;
+		}
+		/* confirm new associations will work with config */
+		LIST_FOREACH(port, &c->ports, list) {
+			if (success && port_security_readiness_check(port)) {
+				sad_revert(clock_config(c));
+				pr_err("rekey failed: security readiness check failed for %s", port_log_name(port));
+				success = false;
+			}
+		}
+		respond = 1;
+		break;
+	default:
 		break;
 	}
 	if (respond && !clock_management_get_response(c, p, id, req))
@@ -1674,6 +1710,8 @@ int clock_manage(struct clock *c, struct port *p, struct ptp_message *msg)
 			clock_management_send_error(p, msg, MID_NOT_SUPPORTED);
 			return changed;
 		}
+		if (clock_management_cmd(c, p, mgt->id, msg, &changed))
+			return changed;
 		break;
 	default:
 		return changed;

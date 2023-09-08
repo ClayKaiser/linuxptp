@@ -3524,6 +3524,10 @@ err:
 	msg_put(msg);
 }
 
+int port_security_readiness_check(struct port *p) {
+	return sad_readiness_check(p->spp, p->active_key_id, clock_config(p->clock));
+}
+
 struct port *port_open(const char *phc_device,
 		       int phc_index,
 		       enum timestamp_type timestamping,
@@ -3686,7 +3690,7 @@ struct port *port_open(const char *phc_device,
 	if (p->net_sync_monitor && !p->hybrid_e2e) {
 		pr_warning("%s: net_sync_monitor needs hybrid_e2e", p->log_name);
 	}
-	if (sad_readiness_check(p->spp, p->active_key_id, clock_config(p->clock))) {
+	if (port_security_readiness_check(p)) {
 		pr_err("%s: security readiness check failed", p->log_name);
 		goto err_uc_service;
 	}

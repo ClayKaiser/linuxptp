@@ -100,6 +100,7 @@ enum management_action {
 #define MID_GRANDMASTER_SETTINGS_NP			0xC001
 #define MID_SUBSCRIBE_EVENTS_NP				0xC003
 #define MID_SYNCHRONIZATION_UNCERTAIN_NP		0xC006
+#define MID_SA_REKEY_NP					0xC00C
 
 /* Port management ID values */
 #define MID_NULL_MANAGEMENT				0x0000
