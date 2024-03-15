@@ -13,6 +13,7 @@
 
 struct security_association {
 	STAILQ_ENTRY(security_association) list;
+	time_t     expiration;    /* when message should be pruned */
 	UInteger8  spp;           /* negotiated by key management (see 3.1.68). */
 	STAILQ_HEAD(keys_head, security_association_key) keys;
 	Boolean    seqnum_ind;    /* not supported in 1588-2019 */
@@ -81,8 +82,14 @@ int sad_process_auth(struct config *cfg, int spp,
 int sad_create(struct config *cfg);
 
 /**
+ * Prune invalid security association database marked for deletion
+ * @param cfg  config where security association database is stored
+ */
+void sad_prune(struct config *cfg);
+
+/**
  * Free current security association database
- * @param cfg  config where security association database should is stored
+ * @param cfg  config where security association database is stored
  */
 void sad_destroy(struct config *cfg);
 

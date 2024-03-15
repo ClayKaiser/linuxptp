@@ -1882,6 +1882,9 @@ int clock_poll(struct clock *c)
 		c->sde = 0;
 	}
 	clock_prune_subscriptions(c);
+
+	/* remove expired security associations after a grace period */
+	sad_prune(clock_config(c));
 	return 0;
 }
 

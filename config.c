@@ -350,6 +350,7 @@ struct config_item config_tab[] = {
 	GLOB_ITEM_INT("ptp_minor_version", 1, 0, 1),
 	GLOB_ITEM_STR("refclock_sock_address", "/var/run/refclock.ptp.sock"),
 	GLOB_ITEM_STR("revisionData", ";;"),
+	GLOB_ITEM_INT("sa_grace_period", 0, 0, UINT16_MAX),
 	GLOB_ITEM_STR("sa_file", NULL),
 	GLOB_ITEM_INT("sanity_freq_limit", 200000000, 0, INT_MAX),
 	PORT_ITEM_INT("serverOnly", 0, 0, 1),

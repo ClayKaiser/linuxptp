@@ -25,17 +25,22 @@ static struct integrity_alg_info supported_algorithms [] = {
 };
 
 /* spp should be in the range [0 - 255] */
+/* expiring should be true or false */
 static inline struct security_association *sad_get_association(struct config *cfg,
-								int spp)
+								int spp, bool expiring)
 {
 	struct security_association *sa;
 	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
-		if (sa->spp == spp) {
+		if ((sa->spp == spp) &&
+			/* looking for an sa about to expire or not */
+			(expiring ? (sa->expiration != 0) : (sa->expiration == 0))) {
 			return sa;
 		}
 	}
 
-	pr_debug("sa %u not present", spp);
+	if (!expiring) {
+		pr_debug("sa %u not present", spp);
+	}
 	return NULL;
 }
 
@@ -114,7 +119,7 @@ int sad_update_auth_tlv(struct config *cfg,
 		}
 		auth = (struct authentication_tlv *) extra->tlv;
 		/* retrieve sa specified by spp in tlv */
-		sa = sad_get_association(cfg, auth->spp);
+		sa = sad_get_association(cfg, auth->spp, false);
 		if (!sa) {
 			return -1;
 		}
@@ -173,7 +178,7 @@ int sad_append_auth_tlv(struct config *cfg, int spp,
 		return -1;
 	}
 	/* retrieve sa specified by spp */
-	sa = sad_get_association(cfg, spp);
+	sa = sad_get_association(cfg, spp, false);
 	if (!sa) {
 		return -1;
 	}
@@ -225,7 +230,7 @@ void sad_set_last_seqid(struct config *cfg,
 		return;
 	}
 	/* retrieve sa specified by spp */
-	sa = sad_get_association(cfg, spp);
+	sa = sad_get_association(cfg, spp, false);
 	if (!sa) {
 		return;
 	}
@@ -397,7 +402,7 @@ int sad_process_auth(struct config *cfg, int spp,
 		return err;
 	}
 	/* retrieve sa specified by spp */
-	sa = sad_get_association(cfg, spp);
+	sa = sad_get_association(cfg, spp, false);
 	if (!sa) {
 		return -EPROTO;
 	}
@@ -408,6 +413,10 @@ int sad_process_auth(struct config *cfg, int spp,
 	}
 	/* detect and process any auth tlvs  */
 	err = sad_check_auth_tlv(sa, msg, raw);
+	/* fall back to expiring association if present */
+	if (err && (sa = sad_get_association(cfg, spp, true))) {
+		err = sad_check_auth_tlv(sa, msg, raw);
+	}
 	return err;
 }
 
@@ -418,6 +427,30 @@ static void sad_destroy_association(struct security_association *sa)
 		STAILQ_REMOVE_HEAD(&sa->keys, list);
 		sad_deinit_mac(key->data);
 		free(key);
+	}
+}
+
+int sad_current(struct timespec lhs, struct timespec rhs)
+{
+	if (lhs.tv_sec == rhs.tv_sec) {
+		return lhs.tv_nsec < rhs.tv_nsec;
+	} else {
+		return lhs.tv_sec < rhs.tv_sec;
+	}
+}
+
+void sad_prune(struct config *cfg)
+{
+	struct timespec now;
+	struct security_association *sa;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+		if (sa->expiration != 0 && sa->expiration <= now.tv_sec) {
+			sad_destroy_association(sa);
+			STAILQ_REMOVE(&cfg->security_association_database,
+					sa, security_association, list);
+			free(sa);
+		}
 	}
 }
 
@@ -444,7 +477,7 @@ static int sad_config_switch_security_association(struct config *cfg,
 		return -1;
 	}
 	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
-		if (sa->spp == spp) {
+		if (sa->spp == spp && sa->expiration == 0) {
 			pr_err("line %zu: sa %u already taken"
 				" - ignoring", line_num, spp);
 			return -1;
@@ -456,6 +489,7 @@ static int sad_config_switch_security_association(struct config *cfg,
 		return -1;
 	}
 	STAILQ_INIT(&sa->keys);
+	sa->expiration = 0;
 	sa->spp = spp;
 	/* set defaults */
 	sa->seqnum_ind = FALSE;
@@ -746,6 +780,8 @@ int sad_create(struct config *cfg)
 {
 	char buf[1024], *line, *c;
 	size_t line_num;
+	struct timespec now;
+	struct security_association *sa;
 
 	const char *sa_file = config_get_string(cfg, NULL, "sa_file");
 	if (sa_file == NULL || strlen(sa_file) == 0) {
@@ -764,8 +800,14 @@ int sad_create(struct config *cfg)
 		return -1;
 	}
 
-	/* destroy current sad if already configured */
-	sad_destroy(cfg);
+	/* mark all current entries for expiration */
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	now.tv_sec += config_get_int(cfg, NULL, "sa_grace_period");
+	STAILQ_FOREACH(sa, &cfg->security_association_database, list) {
+		if (sa->expiration == 0) {
+			sa->expiration = now.tv_sec;
+		}
+	}
 
 	for (line_num = 1; fgets(buf, sizeof(buf), fp); line_num++) {
 		c = buf;
@@ -826,7 +868,7 @@ int sad_readiness_check(int spp, size_t active_key_id, struct config *cfg)
                         pr_err("spp set but sad is empty");
                         return -1;
                 }
-                sa = sad_get_association(cfg, spp);
+                sa = sad_get_association(cfg, spp, false);
                 if (!sa) {
                         pr_err("spp set but sa %u not defined", spp);
                         return -1;
